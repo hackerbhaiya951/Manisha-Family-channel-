@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Connect logo and video cards
+      - name: Connect logo, videos and repair JSX
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -24,6 +24,9 @@ jobs:
           s=s.replace("{page==='home'&&<HomePage data={data} loading={loading} go={go} />}","{page==='home'&&<HomePage data={data} loading={loading} go={go} onOpen={setSelected} />}")
           s=s.replace("function HomePage({data,loading,go}:{data:Data;loading:boolean;go:(p:string)=>void})", "function HomePage({data,loading,go,onOpen}:{data:Data;loading:boolean;go:(p:string)=>void;onOpen:(v:Video)=>void})")
           s=s.replace("onOpen={()=>{}} compact", "onOpen={()=>onOpen(v)} compact")
+          broken="<div className=\"mt-4 text-xs text-white/45\">QR updates automatically with your amount.</div></section>}"
+          fixed="<div className=\"mt-4 text-xs text-white/45\">QR updates automatically with your amount.</div></div></section>}"
+          s=s.replace(broken,fixed)
           p.write_text(s)
           PY
       - name: Commit fix
