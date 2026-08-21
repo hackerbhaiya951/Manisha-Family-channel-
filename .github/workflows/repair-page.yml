@@ -1,4 +1,4 @@
-name: Repair page syntax
+name: Repair page and connect channel data
 on:
   push:
     branches: [main]
@@ -6,24 +6,30 @@ permissions:
   contents: write
 jobs:
   repair:
+    if: !contains(github.event.head_commit.message, 'auto-fix: channel website')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fix extra closing div
+      - name: Connect logo and video cards
         run: |
           python - <<'PY'
           from pathlib import Path
           p=Path('app/page.tsx')
           s=p.read_text()
-          old='</div></div></section>'
-          new='</div></section>'
-          if old in s:
-              p.write_text(s.replace(old,new,1))
+          s=s.replace("type Data={channelId:string;videos:Video[];subscribers:number;totalViews?:number}","type Data={channelId:string;videos:Video[];subscribers:number;totalViews?:number;avatar?:string}")
+          s=s.replace("useState<Data>({channelId:'',videos:[],subscribers:0})","useState<Data>({channelId:'',videos:[],subscribers:0,avatar:''})")
+          old="<div className=\"grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-pink-500 via-purple-500 to-orange-400 shadow-lg shadow-pink-500/20\"><Heart fill=\"white\" size={21}/></div>"
+          new="<div className=\"grid h-11 w-11 overflow-hidden place-items-center rounded-2xl bg-gradient-to-br from-pink-500 via-purple-500 to-orange-400 shadow-lg shadow-pink-500/20\">{data.avatar?<img src={data.avatar} alt=\"Manisha Family Channel\" className=\"h-full w-full object-cover\"/>:<Heart fill=\"white\" size={21}/>}</div>"
+          s=s.replace(old,new)
+          s=s.replace("{page==='home'&&<HomePage data={data} loading={loading} go={go} />}","{page==='home'&&<HomePage data={data} loading={loading} go={go} onOpen={setSelected} />}")
+          s=s.replace("function HomePage({data,loading,go}:{data:Data;loading:boolean;go:(p:string)=>void})", "function HomePage({data,loading,go,onOpen}:{data:Data;loading:boolean;go:(p:string)=>void;onOpen:(v:Video)=>void})")
+          s=s.replace("onOpen={()=>{}} compact", "onOpen={()=>onOpen(v)} compact")
+          p.write_text(s)
           PY
       - name: Commit fix
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app/page.tsx
-          git diff --cached --quiet || git commit -m 'fix: repair page JSX syntax'
+          git diff --cached --quiet || git commit -m 'auto-fix: channel website'
           git push
