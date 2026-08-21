@@ -1,26 +1,46 @@
 import { NextResponse } from 'next/server'
 
-const HANDLE='@manishafamilychannel2859'
-const RSS='https://www.youtube.com/feeds/videos.xml?channel_id='
+const HANDLE = '@manishafamilychannel2859'
+const RESOLVER = `https://yt.lemnoslife.com/channels?handle=${encodeURIComponent(HANDLE)}`
+const RSS = 'https://www.youtube.com/feeds/videos.xml?channel_id='
 
-function text(xml:string,tag:string){const m=xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`));return m?m[1].replace(/<!\[CDATA\[|\]\]>/g,'').trim():''}
-function attr(xml:string,tag:string,attrName:string){const m=xml.match(new RegExp(`<${tag}[^>]*${attrName}=["']([^"']+)["']`));return m?.[1]||''}
-function esc(s:string){return s.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'")}
+const xmlText = (xml: string, tag: string) => {
+  const m = xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`))
+  return (m?.[1] || '').replace(/<!\[CDATA\[|\]\]>/g, '').trim()
+}
+const xmlAttr = (xml: string, tag: string, name: string) => xml.match(new RegExp(`<${tag}[^>]*${name}=["']([^"']+)["']`))?.[1] || ''
+const unescape = (s: string) => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
 
-async function resolveChannel(){
-  try{const r=await fetch(`https://yt.lemnoslife.com/channels?handle=${encodeURIComponent(HANDLE)}`,{cache:'no-store'});if(r.ok){const j=await r.json();const id=j?.items?.[0]?.id;if(id)return id}}catch{}
-  try{const r=await fetch(`https://banner.yt/api/channel/${encodeURIComponent(HANDLE)}?type=handle`,{cache:'no-store'});if(r.ok){const j=await r.json();if(j?.channelId)return j.channelId}}catch{}
-  return ''
+async function resolveChannelId() {
+  const r = await fetch(RESOLVER, { cache: 'no-store' })
+  if (!r.ok) throw new Error('Channel resolver unavailable')
+  const j = await r.json()
+  const id = j?.items?.[0]?.id
+  if (!id) throw new Error('Channel ID not found')
+  return id as string
 }
 
-export async function GET(){
- try{
-  const channelId=await resolveChannel()
-  if(!channelId)return NextResponse.json({channelId:'',videos:[],subscribers:0,error:'Could not resolve channel ID right now.'},{status:200})
-  const feed=await fetch(`${RSS}${channelId}`,{cache:'no-store'})
-  if(!feed.ok)throw new Error('RSS feed unavailable')
-  const xml=await feed.text(); const entries=xml.match(/<entry>[\s\S]*?<\/entry>/g)||[]
-  const videos=entries.map(e=>{const id=text(e,'yt:videoId');const title=esc(text(e,'title'));const published=text(e,'published');const link=attr(e,'link','href')||`https://www.youtube.com/watch?v=${id}`;const thumb=`https://i.ytimg.com/vi/${id}/hqdefault.jpg`;const short=/\#shorts\b|\bshorts\b/i.test(title);return{id,title,published,thumbnail:thumb,url:link,short}})
-  return NextResponse.json({channelId,videos,subscribers:0,totalViews:0},{headers:{'Cache-Control':'s-maxage=1800, stale-while-revalidate=3600'}})
- }catch(e){return NextResponse.json({channelId:'',videos:[],subscribers:0,error:e instanceof Error?e.message:'Unknown error'},{status:200})}
+export async function GET() {
+  try {
+    const channelId = await resolveChannelId()
+    const r = await fetch(`${RSS}${channelId}`, { cache: 'no-store' })
+    if (!r.ok) throw new Error('YouTube RSS feed unavailable')
+    const xml = await r.text()
+    const entries = xml.match(/<entry>[\s\S]*?<\/entry>/g) || []
+
+    const items = entries.map(entry => {
+      const id = xmlText(entry, 'yt:videoId')
+      const title = unescape(xmlText(entry, 'title'))
+      const published = xmlText(entry, 'published')
+      const thumbnail = xmlAttr(entry, 'media:thumbnail', 'url') || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+      const description = unescape(xmlText(entry, 'media:description'))
+      const isShortTitle = /(^|\s)#shorts?(\s|$)/i.test(title)
+      const verticalHint = /(^|\s)(short|vertical|reel)(\s|$)/i.test(description)
+      return { id, title, published, thumbnail, url: `https://www.youtube.com/watch?v=${id}`, description, short: isShortTitle || verticalHint }
+    })
+
+    return NextResponse.json({ channelId, videos: items, shorts: items.filter(x => x.short), totalVideos: items.length }, { headers: { 'Cache-Control': 's-maxage=1800, stale-while-revalidate=3600' } })
+  } catch (e) {
+    return NextResponse.json({ channelId: '', videos: [], shorts: [], totalVideos: 0, error: e instanceof Error ? e.message : 'Unknown error' }, { status: 200 })
+  }
 }
